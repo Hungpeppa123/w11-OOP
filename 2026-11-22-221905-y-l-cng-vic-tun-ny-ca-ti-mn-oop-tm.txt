@@ -1,0 +1,1301 @@
+
+> đây là công việc tuần này của tôi ở môn OOP, tóm tắt các yêu cầu và thông tin
+  để tôi xây dựng UML
+
+● Tóm tắt Lab W11: Campus Safety Hub (Adapter + Observer + Mediator)
+
+  Đề bài yêu cầu viết một chương trình Console mô phỏng trung tâm giám sát an
+  toàn cho phòng máy. Không cần giao diện đồ họa, cơ sở dữ liệu, mạng hay gửi
+  email thật. Trọng tâm là thiết kế lớp và luồng tương tác.
+
+  1. Ba pattern và vấn đề mỗi pattern giải quyết
+
+  ┌──────────┬────────────────────────────────────┬─────────────────────────┐
+  │ Pattern  │               Vấn đề               │    Thành phần chính     │
+  ├──────────┼────────────────────────────────────┼─────────────────────────┤
+  │ Adapter  │ Cảm biến khói cũ không có giao     │ SmokeSensorAdapter      │
+  │          │ diện ISensor                       │                         │
+  ├──────────┼────────────────────────────────────┼─────────────────────────┤
+  │ Observer │ Nhiều bên cần nhận cảnh báo, có    │ SensorMonitor,          │
+  │          │ thể thêm/bớt khi đang chạy         │ IAlertObserver          │
+  ├──────────┼────────────────────────────────────┼─────────────────────────┤
+  │ Mediator │ Các thiết bị cần phối hợp mà không │ EmergencyMediator       │
+  │          │  gọi trực tiếp lẫn nhau            │                         │
+  └──────────┴────────────────────────────────────┴─────────────────────────┘
+
+  Luồng chạy:
+  LegacySmokeDetector → SmokeSensorAdapter → (dưới dạng ISensor) → SensorMonitor
+  → gửi AlertEvent → 4 observer. Trong đó EmergencyBridgeObserver gửi tiếp
+  FIRE_DETECTED → EmergencyMediator → Alarm, DoorController,
+  VentilationController.
+
+  2. Các lớp và thành viên cần vẽ
+
+  <<interface>> ISensor
+  - +ReadValue(): double
+  - +GetUnit(): string
+
+  LegacySmokeDetector (sealed, có sẵn, không được sửa)
+  - -smokeLevel: int (giá trị 0..1000)
+  - +LegacySmokeDetector(smokeLevel: int)
+  - +GetSmokeLevel(): int
+  - +GetDescription(): string
+  - +SetSmokeLevel(value: int): void (giới hạn giá trị trong 0..1000)
+
+  SmokeSensorAdapter (sealed, implements ISensor)
+  - -legacy: LegacySmokeDetector (readonly)
+  - +SmokeSensorAdapter(legacy: LegacySmokeDetector): ném ArgumentNullException
+    nếu legacy là null
+  - +ReadValue(): double: trả về GetSmokeLevel() / 10.0, tức đổi 0..1000
+    thành 0..100%
+  - +GetUnit(): string: trả về "% smoke"
+  - Yêu cầu: không sao chép trạng thái của lớp cũ, mỗi lần đọc đều gọi sang
+    legacy.
+
+  <<record>> AlertEvent (sealed, bất biến)
+  - +SensorName: string, +Value: double, +Unit: string, +Severity: string,
+    +OccurredAt: DateTime
+
+  <<interface>> IAlertObserver
+  - +Update(alertEvent: AlertEvent): void
+
+  SensorMonitor (sealed, đóng vai Subject)
+  - -observers: List<IAlertObserver>
+  - +Attach(observer: IAlertObserver): void: ném lỗi nếu null, không cho đăng ký
+    trùng
+  - +Detach(observer: IAlertObserver): void
+  - +CheckSensor(sensorName: string, sensor: ISensor): void: đọc giá trị, so
+    ngưỡng, tạo AlertEvent
+  - -Notify(alertEvent: AlertEvent): void: duyệt trên observers.ToArray()
+
+  Bốn observer cụ thể (đều implements IAlertObserver)
+  - DashboardObserver: in [DASHBOARD] name: value unit [severity]
+  - EmailAlertObserver: giả lập gửi email bằng cách in ra console
+  - AuditLogObserver: ghi log
+  - EmergencyBridgeObserver: -mediator: IEmergencyMediator. Khi nhận cảnh báo
+    phù hợp (thường là CRITICAL) thì gọi mediator với sự kiện FIRE_DETECTED.
+
+  <<interface>> IEmergencyMediator, EmergencyMediator, Alarm, DoorController,
+  VentilationController
+
+  ▎ ⚠️ PDF bạn gửi chỉ có đến hết phần D (Observer). Phần Mediator chưa có code
+  ▎ khung, nên các thành viên dưới đây là gợi ý của mình. Bạn nên đối chiếu với
+  ▎ các trang sau của đề nếu có.
+
+  - IEmergencyMediator: +Notify(sender: string, eventName: string): void
+  - EmergencyMediator: -alarm: Alarm, -door: DoorController, -ventilation:
+    VentilationController, nhận cả ba qua constructor. Khi gặp FIRE_DETECTED thì
+    gọi alarm.Activate(), door.UnlockAll(), ventilation.Shutdown().
+  - Alarm: +Activate()
+  - DoorController: +UnlockAll()
+  - VentilationController: +Shutdown()
+
+  3. Quan hệ giữa các lớp
+
+  ┌───────────────────────────────────────┬─────────────────────────────────┐
+  │                Quan hệ                │           Ký hiệu UML           │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ SmokeSensorAdapter → ISensor          │ Realization (nét đứt, tam giác  │
+  │                                       │ rỗng)                           │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ SmokeSensorAdapter →                  │ Association/Aggregation 1–1     │
+  │ LegacySmokeDetector                   │ (chứa, không kế thừa)           │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ SensorMonitor → IAlertObserver        │ Aggregation 1 → 0..*            │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ SensorMonitor → ISensor               │ Dependency (là tham số của      │
+  │                                       │ phương thức)                    │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ SensorMonitor → AlertEvent            │ Dependency «create»             │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 4 observer → IAlertObserver           │ Realization                     │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ Các observer → AlertEvent             │ Dependency (là tham số)         │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ EmergencyBridgeObserver →             │ Association                     │
+  │ IEmergencyMediator                    │                                 │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ EmergencyMediator →                   │ Realization                     │
+  │ IEmergencyMediator                    │                                 │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ EmergencyMediator → Alarm /           │                                 │
+  │ DoorController /                      │ Association 1–1                 │
+  │ VentilationController                 │                                 │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ Alarm ↔ DoorController                │ Không có quan hệ (đây là ý      │
+  │                                       │ chính của Mediator)             │
+  └───────────────────────────────────────┴─────────────────────────────────┘
+
+  4. Quy tắc nghiệp vụ
+
+  ┌──────────────────────────┬──────────────────────────────────┐
+  │ Giá trị khói sau khi đổi │              Mức độ              │
+  ├──────────────────────────┼──────────────────────────────────┤
+  │ < 50%                    │ Bình thường, không phát cảnh báo │
+  ├──────────────────────────┼──────────────────────────────────┤
+  │ 50% đến < 70%            │ WARNING                          │
+  ├──────────────────────────┼──────────────────────────────────┤
+  │ ≥ 70%                    │ CRITICAL                         │
+  └──────────────────────────┴──────────────────────────────────┘
+
+  Yêu cầu riêng cho Observer:
+  1. Một observer không được đăng ký hai lần.
+  2. Phải hủy đăng ký được.
+  3. Khi thông báo, duyệt trên bản sao ToArray().
+  4. Observer không được sửa AlertEvent (record bất biến đảm bảo điều này).
+  5. Một observer bị lỗi không được ảnh hưởng đến các observer khác. Nên bọc mỗi
+     lần gọi Update trong try/catch và ghi log.
+
+  Test mẫu: với new LegacySmokeDetector(735), ReadValue() trả về 73.5 và
+  GetUnit() trả về % smoke. Giá trị này rơi vào mức CRITICAL.
+
+  5. Trả lời 4 câu hỏi thiết kế
+
+  1. Adapter kế thừa hay chứa? Phải chứa (composition). LegacySmokeDetector là
+     lớp sealed nên không kế thừa được. Ngoài ra, chứa đối tượng cũ giúp tránh
+     lộ các phương thức cũ ra ngoài.
+  2. SensorMonitor có cần biết EmailAlertObserver không? Không. Nó chỉ làm việc
+     qua IAlertObserver, nhờ vậy giữ được nguyên tắc Open/Closed.
+  3. Alarm có cần tham chiếu DoorController không? Không. Mọi phối hợp giữa các
+     thiết bị đi qua EmergencyMediator.
+  4. Ai quyết định vượt ngưỡng? SensorMonitor, trong phương thức CheckSensor.
+     Adapter chỉ đổi đơn vị, còn observer chỉ phản ứng với cảnh báo nhận được.
+
+  6. Code PlantUML để vẽ nhanh
+
+  plantuml
+  @startuml
+  interface ISensor { +ReadValue(): double
+    +GetUnit(): string }
+  class LegacySmokeDetector <<sealed>> { -smokeLevel: int
+    +GetSmokeLevel(): int
+    +GetDescription(): string
+    +SetSmokeLevel(value: int) }
+  class SmokeSensorAdapter <<sealed>> { -legacy: LegacySmokeDetector
+    +ReadValue(): double
+    +GetUnit(): string }
+  class AlertEvent <<record>> { +SensorName: string
+    +Value: double
+    +Unit: string
+    +Severity: string
+    +OccurredAt: DateTime }
+  interface IAlertObserver { +Update(e: AlertEvent) }
+  class SensorMonitor <<sealed>> { -observers: List<IAlertObserver>
+    +Attach(o: IAlertObserver)
+    +Detach(o: IAlertObserver)
+    +CheckSensor(name: string, s: ISensor)
+    -Notify(e: AlertEvent) }
+  class DashboardObserver
+  class EmailAlertObserver
+  class AuditLogObserver
+  class EmergencyBridgeObserver { -mediator: IEmergencyMediator }
+  interface IEmergencyMediator { +Notify(sender: string, eventName: string) }
+  class EmergencyMediator
+  class Alarm { +Activate() }
+  class DoorController { +UnlockAll() }
+  class VentilationController { +Shutdown() }
+
+  ISensor <|.. SmokeSensorAdapter
+  SmokeSensorAdapter o--> "1" LegacySmokeDetector
+  SensorMonitor o--> "0..*" IAlertObserver
+  SensorMonitor ..> ISensor
+  SensorMonitor ..> AlertEvent : <<create>>
+  IAlertObserver <|.. DashboardObserver
+  IAlertObserver <|.. EmailAlertObserver
+  IAlertObserver <|.. AuditLogObserver
+  IAlertObserver <|.. EmergencyBridgeObserver
+  IAlertObserver ..> AlertEvent
+  EmergencyBridgeObserver --> IEmergencyMediator
+  IEmergencyMediator <|.. EmergencyMediator
+  EmergencyMediator --> Alarm
+  EmergencyMediator --> DoorController
+  EmergencyMediator --> VentilationController
+  @enduml
+
+  Bạn có thể dán đoạn này vào plantuml.com hoặc extension PlantUML trong VS Code
+  để xem sơ đồ. Nếu muốn, mình có thể vẽ thêm Sequence Diagram cho luồng phát
+  hiện cháy, hoặc dựng luôn project C# Console.
+
+[Image #1]
+
+> UML của tôi
+
+● UML của bạn đúng với đề: đủ 3 pattern, ký hiệu quan hệ đúng và đọc dễ. Còn một
+  lỗi hiển thị, một vấn đề về cách khởi tạo và vài chỗ nên chỉnh.
+
+  Những chỗ đã đúng
+
+  - Adapter: SmokeSensorAdapter thực thi ISensor bằng nét đứt và tam giác rỗng,
+    đúng. Nó chứa LegacySmokeDetector (có hình thoi và nhãn adaptee), đúng với
+    câu hỏi 1 của đề.
+  - Observer: SensorMonitor chứa IAlertObserver với bội số 0..* (aggregation),
+    đúng. Monitor chỉ biết interface, không biết EmailAlertObserver cụ thể (câu
+    hỏi 2). Bốn observer đều realize interface.
+  - Phụ thuộc: dùng nét đứt cho reads tới ISensor và creates tới AlertEvent là
+    hợp lý, vì đó là quan hệ dependency chứ không phải association.
+  - Mediator: Alarm, DoorController và VentilationController không tham chiếu
+    lẫn nhau (câu hỏi 3). Có thêm Lock() và Start() để khôi phục hệ thống khi
+    reset, đây là điểm cộng.
+
+  Cần sửa
+
+  1. Stereotype của AlertEvent đang hiện <<>> (rỗng). Có lẽ draw.io đã nuốt mất
+  chữ. Hãy ghi «record» hoặc «sealed record». Nên thêm {readOnly} cho các thuộc
+  tính để thể hiện yêu cầu "observer không được thay đổi AlertEvent".
+
+  2. Alarm và EmergencyMediator tham chiếu vòng nhau. EmergencyMediator giữ
+  alarm, còn Alarm lại giữ mediator. Nếu cả hai đều nhận nhau qua constructor
+  thì không tạo được đối tượng nào trước. Có hai cách xử lý:
+  - Thêm + SetMediator(mediator: IEmergencyMediator) vào Alarm. Đây là cách phổ
+    biến của Mediator.
+  - Hoặc bỏ mediator khỏi Alarm và đường ALARM_RESET, để việc reset do bên ngoài
+    gọi mediator.Notify("User", "ALARM_RESET").
+
+  Ngoài ra đang có điểm không nhất quán: chỉ Alarm biết mediator, Door và Vent
+  thì không. Điều này chấp nhận được nếu chỉ Alarm phát sự kiện, nhưng bạn nên
+  giải thích được lý do khi bị hỏi.
+
+  3. Thiếu kiểu tham số và kiểu trả về. Ở interface bạn đã ghi đầy đủ, nhưng ở
+  lớp con thì thiếu:
+  - + Update(alertEvent) → + Update(alertEvent: AlertEvent): void
+  - + Attach(observer) → + Attach(observer: IAlertObserver): void
+  - + SmokeSensorAdapter(legacy) → + SmokeSensorAdapter(legacy:
+    LegacySmokeDetector)
+
+  Nên bổ sung (nhỏ)
+
+  - Constructor còn thiếu:
+    - LegacySmokeDetector(smokeLevel: int)
+    - EmergencyBridgeObserver(mediator: IEmergencyMediator)
+    - EmergencyMediator(alarm, door, vent)
+    - EmailAlertObserver(recipient: string)
+  - Đánh dấu «sealed» cho các lớp mà đề khai báo sealed: Legacy, Adapter,
+    SensorMonitor, AlertEvent và DashboardObserver. Đánh dấu {readOnly} cho
+    legacy và observers.
+  - AuditLogObserver.GetLogs(): List<string> đang để lộ list nội bộ ra ngoài,
+    nên đổi thành IReadOnlyList<string>.
+  - Bội số 1 ở ba đường từ EmergencyMediator tới các thiết bị, và ở đường
+    adaptee.
+  - Hai note (hình tờ giấy gấp góc) để làm rõ hai quy tắc nghiệp vụ:
+    - Gắn vào SensorMonitor.CheckSensor: "≥70 → CRITICAL, ≥50 → WARNING, <50 →
+      không cảnh báo". Note này trả lời câu hỏi 4 của đề.
+    - Gắn vào EmergencyBridgeObserver: "chỉ gửi FIRE_DETECTED khi Severity ==
+      CRITICAL".
+  - (Tùy chọn) Thêm dependency nét đứt từ IAlertObserver tới AlertEvent, vì đây
+    là tham số của Update.
+
+  Sau khi sửa mục 1 và mục 2, sơ đồ có thể nộp được.
+
+[Image #2]
+
+> tôi đã fix lại bạn hãy kiểm tra
+
+● Các lỗi lần trước đã được sửa hết: «record», SetMediator(...), kiểu tham
+  số/trả về và constructor của EmergencyBridgeObserver. Bản mới còn một lỗi về
+  ký hiệu cần sửa trước khi nộp. Lỗi này do bạn dồn nhiều đường vào chung một
+  đường.
+
+  Lỗi chính: các đường gộp chung đổi nghĩa quan hệ
+
+  1. Đường aggregation observers nhập vào trục realization.
+  Đường liền từ SensorMonitor chạy sang nhập vào trục dọc ở x≈980. Trục này là
+  nét liền đi lên và kết thúc bằng tam giác rỗng ở IAlertObserver.
+  - Nét liền kèm tam giác rỗng là ký hiệu generalization (kế thừa). Đọc theo sơ
+    đồ thì sẽ hiểu là "SensorMonitor kế thừa IAlertObserver", và các observer
+    cũng bị đọc thành kế thừa chứ không phải implements.
+  - Nhãn 0..* hiện nằm ở chỗ đường của EmailAlertObserver chạm vào interface,
+    tức là đang nằm sai đường.
+
+  Cách sửa:
+  - Cho đường aggregation đi vào cạnh trái của IAlertObserver như một đường
+    riêng, không chạm vào trục nào khác. Đầu phía SensorMonitor giữ hình thoi
+    rỗng, đầu phía IAlertObserver dùng mũi tên mở hoặc không mũi tên, và ghi
+    0..* sát IAlertObserver.
+  - Bốn đường realization có thể dùng chung một trục, nhưng trục đó phải là nét
+    đứt từ đầu đến cuối.
+
+  2. Đường reads cũng mắc lỗi tương tự với ISensor.
+  Đường dependency từ SensorMonitor nhập vào đường realization của
+  SmokeSensorAdapter, rồi kết thúc bằng tam giác rỗng ở ISensor. Như vậy sơ đồ
+  đang nói "SensorMonitor implements ISensor".
+  → Hãy cho reads đi vào một điểm khác trên ISensor và kết thúc bằng mũi tên mở
+  (---> nét đứt).
+
+  ▎ Mẹo khi dùng draw.io: mỗi quan hệ nên có một đường riêng và điểm cuối riêng.
+  ▎ Chỉ nên gộp các đường cùng loại (ví dụ các realization tới cùng một
+  ▎ interface).
+
+  Các mục nhỏ còn lại (không bắt buộc)
+
+  - Thiếu constructor: LegacySmokeDetector(smokeLevel: int),
+    EmergencyMediator(alarm, door, vent), EmailAlertObserver(recipient: string).
+  - GetLogs(): List<string> nên đổi thành IReadOnlyList<string>.
+  - Thêm bội số 1 trên ba đường từ EmergencyMediator tới các thiết bị.
+  - Thêm note về ngưỡng (≥70 → CRITICAL, ≥50 → WARNING) gắn vào SensorMonitor,
+    và note "chỉ chuyển tiếp khi CRITICAL" gắn vào EmergencyBridgeObserver.
+
+  Sau khi tách hai đường ở mục 1 và mục 2, sơ đồ có thể nộp được. Phần Mediator
+  (Alarm ↔ Mediator qua SetMediator, các thiết bị không biết nhau) đã đúng.
+
+[Image #3]
+
+> tôi đã tách các đường ra
+
+● Lần này các đường đã đúng ký hiệu, sơ đồ nộp được.
+
+  Đã sửa đúng
+
+  - reads: đường nét đứt riêng, kết thúc bằng mũi tên mở ở ISensor. Giờ đọc đúng
+    là dependency, không còn bị hiểu thành "SensorMonitor implements ISensor".
+  - observers: đường liền riêng, có hình thoi rỗng ở SensorMonitor và mũi tên mở
+    cùng 0..* ở phía IAlertObserver. Đây là aggregation đúng chuẩn.
+  - 4 realization: mỗi observer có đường nét đứt riêng với tam giác rỗng, không
+    còn chạm vào đường aggregation.
+  - Adapter: realization tới ISensor và đường adaptee tới LegacySmokeDetector
+    đều tách bạch.
+
+  Có thể thêm nếu muốn điểm tối đa (không bắt buộc)
+
+  - Constructor còn thiếu: LegacySmokeDetector(smokeLevel: int),
+    EmergencyMediator(alarm, door, vent), EmailAlertObserver(recipient: string).
+  - Đổi GetLogs(): List<string> thành IReadOnlyList<string>.
+  - Thêm bội số 1 trên ba đường từ EmergencyMediator tới các thiết bị.
+  - Thêm 2 note:
+    - gắn vào SensorMonitor: "≥70 → CRITICAL, ≥50 → WARNING";
+    - gắn vào EmergencyBridgeObserver: "chỉ gửi FIRE_DETECTED khi CRITICAL".
+
+  Bước tiếp theo là viết code C#. Nếu bạn muốn, mình có thể dựng project Console
+  theo đúng sơ đồ này, kèm phần Main để demo các kịch bản 45% / 60% / 73.5%,
+  detach observer và observer bị lỗi.
+
+> ok giờ dựa vào sơ đồ UML này cho tôi khung để tôi giải quyết bài toán
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Máy bạn chỉ có .NET 6 Runtime, chưa có SDK, nên mình không build thử được.
+  Mình sẽ tạo khung code nhắm .NET 8 và viết cẩn thận để biên dịch được.
+
+● Write(CampusSafetyHub\CampusSafetyHub.csproj)
+  ⎿  Wrote 11 lines to CampusSafetyHub\CampusSafetyHub.csproj
+      1 <Project Sdk="Microsoft.NET.Sdk">
+      2
+      3   <PropertyGroup>
+      4     <OutputType>Exe</OutputType>
+      5     <TargetFramework>net8.0</TargetFramework>
+      6     <ImplicitUsings>enable</ImplicitUsings>
+      7     <Nullable>enable</Nullable>
+      8     <RootNamespace>CampusSafetyHub</RootNamespace>
+      9   </PropertyGroup>
+     … +2 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Sensors\ISensor.cs)
+  ⎿  Wrote 8 lines to CampusSafetyHub\Sensors\ISensor.cs
+      1 namespace CampusSafetyHub;
+      2
+      3 // [ĐỀ CHO SẴN] Giao diện chuẩn mà module giám sát sử dụng.
+      4 public interface ISensor
+      5 {
+      6     double ReadValue();
+      7     string GetUnit();
+      8 }
+
+● Write(CampusSafetyHub\Sensors\LegacySmokeDetector.cs)
+  ⎿  Wrote 21 lines to CampusSafetyHub\Sensors\LegacySmokeDetector.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // [ĐỀ CHO SẴN – KHÔNG ĐƯỢC SỬA] Lớp cảm biến cũ, thang đo 0..10
+         00.
+       4 public sealed class LegacySmokeDetector
+       5 {
+       6     private int smokeLevel;
+       7
+       8     public LegacySmokeDetector(int smokeLevel)
+       9     {
+     … +12 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Sensors\SmokeSensorAdapter.cs)
+  ⎿  Wrote 31 lines to CampusSafetyHub\Sensors\SmokeSensorAdapter.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // ADAPTER: biến LegacySmokeDetector thành ISensor.
+       4 // Yêu cầu:
+       5 //   1. Thực thi ISensor.
+       6 //   2. Nhận LegacySmokeDetector qua constructor (null -> Argume
+         ntNullException).
+       7 //   3. Chuyển 0..1000 thành 0..100 (%).
+       8 //   4. GetUnit() trả "% smoke".
+       9 //   5. KHÔNG sao chép trạng thái: mỗi lần ReadValue() phải hỏi
+     … +23 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Alerts\AlertEvent.cs)
+  ⎿  Wrote 9 lines to CampusSafetyHub\Alerts\AlertEvent.cs
+      1 namespace CampusSafetyHub;
+      2
+      3 // [ĐỀ CHO SẴN] Dữ liệu cảnh báo bất biến (record positional => t
+        huộc tính init-only).
+      4 public sealed record AlertEvent(
+      5     string SensorName,
+      6     double Value,
+      7     string Unit,
+      8     string Severity,
+      9     DateTime OccurredAt);
+
+● Write(CampusSafetyHub\Alerts\IAlertObserver.cs)
+  ⎿  Wrote 7 lines to CampusSafetyHub\Alerts\IAlertObserver.cs
+      1 namespace CampusSafetyHub;
+      2
+      3 // [ĐỀ CHO SẴN] Hợp đồng nhận cảnh báo.
+      4 public interface IAlertObserver
+      5 {
+      6     void Update(AlertEvent alertEvent);
+      7 }
+
+● Write(CampusSafetyHub\Alerts\SensorMonitor.cs)
+  ⎿  Wrote 44 lines to CampusSafetyHub\Alerts\SensorMonitor.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // SUBJECT của Observer. Chỉ biết IAlertObserver, không biết lớp
+          observer cụ thể nào.
+       4 // Đây là nơi DUY NHẤT quyết định ngưỡng:
+       5 //   < 50      -> không cảnh báo
+       6 //   50 .. <70 -> "WARNING"
+       7 //   >= 70     -> "CRITICAL"
+       8 public sealed class SensorMonitor
+       9 {
+     … +35 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Observers\DashboardObserver.cs)
+  ⎿  Wrote 13 lines to CampusSafetyHub\Observers\DashboardObserver.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // [ĐỀ CHO SẴN – dùng làm mẫu cho các observer khác]
+       4 public sealed class DashboardObserver : IAlertObserver
+       5 {
+       6     public void Update(AlertEvent alertEvent)
+       7     {
+       8         Console.WriteLine(
+       9             $"[DASHBOARD] {alertEvent.SensorName}: " +
+      10             $"{alertEvent.Value:F1}{alertEvent.Unit} " +
+     … +3 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Observers\EmailAlertObserver.cs)
+  ⎿  Wrote 19 lines to CampusSafetyHub\Observers\EmailAlertObserver.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // Giả lập gửi email (chỉ in ra Console, KHÔNG gửi thật).
+       4 public sealed class EmailAlertObserver : IAlertObserver
+       5 {
+       6     private readonly string recipient;
+       7
+       8     public EmailAlertObserver(string recipient)
+       9     {
+      10         // TODO: kiểm tra recipient hợp lệ (không null/rỗng) rồi
+     … +10 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Observers\AuditLogObserver.cs)
+  ⎿  Wrote 20 lines to CampusSafetyHub\Observers\AuditLogObserver.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // Lưu lịch sử cảnh báo trong bộ nhớ.
+       4 public sealed class AuditLogObserver : IAlertObserver
+       5 {
+       6     private readonly List<string> logs = new();
+       7
+       8     public void Update(AlertEvent alertEvent)
+       9     {
+      10         // TODO: tạo 1 dòng log (thời gian, sensor, giá trị, sev
+     … +11 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Observers\EmergencyBridgeObserver.cs)
+  ⎿  Wrote 20 lines to CampusSafetyHub\Observers\EmergencyBridgeObserver.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // Cầu nối Observer -> Mediator.
+       4 // Chỉ chuyển tiếp cảnh báo PHÙ HỢP (Severity == "CRITICAL") thà
+         nh sự kiện "FIRE_DETECTED".
+       5 public sealed class EmergencyBridgeObserver : IAlertObserver
+       6 {
+       7     private readonly IEmergencyMediator mediator;
+       8
+       9     public EmergencyBridgeObserver(IEmergencyMediator mediator)
+     … +11 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Emergency\IEmergencyMediator.cs)  ⎿  Wrote 7 lines to CampusSafetyHub\Emergency\IEmergencyMediator.cs
+      1 namespace CampusSafetyHub;
+      2
+      3 // Hợp đồng điều phối. Các sự kiện dùng trong bài: "FIRE_DETECTED
+        ", "ALARM_RESET".
+      4 public interface IEmergencyMediator
+      5 {
+      6     void Notify(object sender, string eventName);
+      7 }
+
+● Write(CampusSafetyHub\Emergency\EmergencyMediator.cs)
+  ⎿  Wrote 27 lines to CampusSafetyHub\Emergency\EmergencyMediator.cs
+      1 namespace CampusSafetyHub;
+      2
+      3 // MEDIATOR: phối hợp Alarm, DoorController, VentilationControlle
+        r.
+      4 // Các thiết bị KHÔNG tham chiếu lẫn nhau, mọi phối hợp đi qua đâ
+        y.
+      5 public sealed class EmergencyMediator : IEmergencyMediator
+      6 {
+      7     private readonly Alarm alarm;
+      8     private readonly DoorController door;
+     … +19 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Emergency\Alarm.cs)
+  ⎿  Wrote 28 lines to CampusSafetyHub\Emergency\Alarm.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 // Còi báo động. Biết mediator (qua SetMediator) để báo "ALARM_R
+         ESET",
+       4 // nhưng KHÔNG biết DoorController hay VentilationController.
+       5 public sealed class Alarm
+       6 {
+       7     private IEmergencyMediator? mediator;
+       8     private bool isOn;
+       9
+     … +19 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Emergency\DoorController.cs)
+  ⎿  Wrote 18 lines to CampusSafetyHub\Emergency\DoorController.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 public sealed class DoorController
+       4 {
+       5     private bool isLocked = true;
+       6
+       7     public void Unlock()
+       8     {
+       9         // TODO: mở khóa cửa thoát hiểm, in trạng thái
+      10         throw new NotImplementedException();
+     … +8 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Emergency\VentilationController.cs)
+  ⎿  Wrote 18 lines to CampusSafetyHub\Emergency\VentilationController.cs
+       1 namespace CampusSafetyHub;
+       2
+       3 public sealed class VentilationController
+       4 {
+       5     private bool isRunning = true;
+       6
+       7     public void Start()
+       8     {
+       9         // TODO
+      10         throw new NotImplementedException();
+     … +8 lines (ctrl+o to expand)
+
+● Write(CampusSafetyHub\Program.cs)
+  ⎿  Wrote 60 lines to CampusSafetyHub\Program.cs
+       1 using CampusSafetyHub;
+       2
+       3 // ===== Test Adapter (theo đề) =====
+       4 var legacy = new LegacySmokeDetector(735);
+       5 ISensor sensor = new SmokeSensorAdapter(legacy);
+       6 Console.WriteLine(sensor.ReadValue()); // mong đợi: 73.5
+       7 Console.WriteLine(sensor.GetUnit());   // mong đợi: % smoke
+       8 Console.WriteLine();
+       9
+      10 // ===== Lắp ráp hệ thống =====
+     … +50 lines (ctrl+o to expand)
+
+● Mình đã tạo khung code C# cho bài trong CampusSafetyHub/, bám đúng UML của
+  bạn. Mình chưa build thử được vì máy bạn mới có .NET 6 Runtime, chưa có SDK.
+
+  Các phần đề cho sẵn mình chép nguyên: ISensor, LegacySmokeDetector,
+  AlertEvent, IAlertObserver, DashboardObserver. Mọi lớp khác đã có đủ field và
+  chữ ký method theo UML. Phần thân là // TODO kèm gợi ý, rồi throw new
+  NotImplementedException(), nên chương trình sẽ dừng ở TODO đầu tiên chưa làm.
+
+  Cấu trúc
+
+  Thư mục: Sensors/ (CampusSafetyHub/Sensors/)
+  File: SmokeSensorAdapter.cs (CampusSafetyHub/Sensors/SmokeSensorAdapter.cs)
+  Việc bạn cần làm: Constructor, đổi thang 0..1000 sang %, đơn vị
+  ────────────────────────────────────────
+  Thư mục: Alerts/ (CampusSafetyHub/Alerts/)
+  File: SensorMonitor.cs (CampusSafetyHub/Alerts/SensorMonitor.cs)
+  Việc bạn cần làm: Attach (chặn đăng ký trùng), Detach, CheckSensor (ngưỡng),
+    Notify (ToArray() + try/catch)
+  ────────────────────────────────────────
+  Thư mục: Observers/ (CampusSafetyHub/Observers/)
+  File: EmailAlertObserver.cs (CampusSafetyHub/Observers/EmailAlertObserver.cs),
+
+    AuditLogObserver.cs (CampusSafetyHub/Observers/AuditLogObserver.cs),
+    EmergencyBridgeObserver.cs
+    (CampusSafetyHub/Observers/EmergencyBridgeObserver.cs)
+  Việc bạn cần làm: In ra Console, lưu log, chuyển CRITICAL thành FIRE_DETECTED
+  ────────────────────────────────────────
+  Thư mục: Emergency/ (CampusSafetyHub/Emergency/)
+  File: EmergencyMediator.cs (CampusSafetyHub/Emergency/EmergencyMediator.cs),
+    Alarm.cs (CampusSafetyHub/Emergency/Alarm.cs), DoorController.cs
+    (CampusSafetyHub/Emergency/DoorController.cs), VentilationController.cs
+    (CampusSafetyHub/Emergency/VentilationController.cs)
+  Việc bạn cần làm: Xử lý FIRE_DETECTED / ALARM_RESET, bật/tắt từng thiết bị
+  ────────────────────────────────────────
+  Thư mục: (gốc)
+  File: Program.cs (CampusSafetyHub/Program.cs)
+  Việc bạn cần làm: Đã có test Adapter và kịch bản 1–5 (45%, 60%, 73.5%, gỡ
+    observer, reset còi); bạn tự viết kịch bản 6 và 7
+
+  Gợi ý thứ tự làm
+
+  1. Adapter, rồi chạy thử. Hai dòng đầu phải in 73.5 và % smoke.
+  2. SensorMonitor và 2 observer đơn giản (Email, Audit). Lúc này kịch bản 1–2
+     sẽ chạy được.
+  3. Ba thiết bị, rồi EmergencyMediator, rồi EmergencyBridgeObserver. Lúc này
+     kịch bản 3–5 sẽ chạy được.
+  4. Viết kịch bản 6 (observer ném exception) và kịch bản 7 (observer tự gỡ
+     chính nó khi đang nhận thông báo) để chứng minh yêu cầu 3 và 5 của phần
+     Observer.
+
+  Một bẫy cần tránh: khi mediator nhận ALARM_RESET thì không được gọi lại
+  alarm.Reset(). Nếu gọi, Reset() sẽ lại báo ALARM_RESET và chương trình lặp vô
+  hạn. Mình đã ghi chú điều này trong Alarm.cs
+  (CampusSafetyHub/Emergency/Alarm.cs).
+
+  Cách chạy
+
+  Bạn cần cài .NET 8 SDK (bản SDK, không phải Runtime). Sau đó chạy:
+  cd CampusSafetyHub
+  dotnet run
+
+  Làm xong phần nào bạn có thể gửi code để mình xem.
+
+> tôi dùng python
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Máy bạn có Python 3.13. Mình sẽ xoá khung C# vừa tạo (chỉ gồm các file mình
+  tạo lúc nãy) và chuyển sang Python.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(campus_safety_hub\__init__.py)
+  ⎿  Wrote 1 line to campus_safety_hub\__init__.py
+      1 """Campus Safety Hub - Adapter + Observer + Mediator."""
+
+● Write(campus_safety_hub\sensors.py)
+  ⎿  Wrote 46 lines to campus_safety_hub\sensors.py
+       1 """ADAPTER: ISensor, LegacySmokeDetector, SmokeSensorAdapter."""
+       2 from abc import ABC, abstractmethod
+       3
+       4
+       5 # [ĐỀ CHO SẴN] Giao diện chuẩn mà module giám sát sử dụng.
+       6 class ISensor(ABC):
+       7     @abstractmethod
+       8     def read_value(self) -> float: ...
+       9
+      10     @abstractmethod
+     … +36 lines (ctrl+o to expand)
+
+● Write(campus_safety_hub\alerts.py)
+  ⎿  Wrote 59 lines to campus_safety_hub\alerts.py
+       1 """OBSERVER (phần lõi): AlertEvent, IAlertObserver, SensorMonito
+         r."""
+       2 from abc import ABC, abstractmethod
+       3 from dataclasses import dataclass
+       4 from datetime import datetime
+       5
+       6 from .sensors import ISensor
+       7
+       8
+       9 # [ĐỀ CHO SẴN, chuyển sang Python] Dữ liệu cảnh báo BẤT BIẾN.
+     … +50 lines (ctrl+o to expand)
+
+● Write(campus_safety_hub\observers.py)
+  ⎿  Wrote 50 lines to campus_safety_hub\observers.py
+       1 """Các observer cụ thể."""
+       2 from .alerts import AlertEvent, IAlertObserver
+       3 from .emergency import IEmergencyMediator
+       4
+       5
+       6 # [ĐỀ CHO SẴN - dùng làm mẫu cho các observer khác]
+       7 class DashboardObserver(IAlertObserver):
+       8     def update(self, alert_event: AlertEvent) -> None:
+       9         print(
+      10             f"[DASHBOARD] {alert_event.sensor_name}: "
+     … +40 lines (ctrl+o to expand)
+
+● Write(campus_safety_hub\emergency.py)
+  ⎿  Wrote 79 lines to campus_safety_hub\emergency.py
+       1 """MEDIATOR: IEmergencyMediator, EmergencyMediator và các thiết
+         bị."""
+       2 from __future__ import annotations
+       3
+       4 from abc import ABC, abstractmethod
+       5
+       6
+       7 # Hợp đồng điều phối. Sự kiện dùng trong bài: "FIRE_DETECTED", "
+         ALARM_RESET".
+       8 class IEmergencyMediator(ABC):
+     … +71 lines (ctrl+o to expand)
+
+● Write(main.py)
+  ⎿  Wrote 78 lines to main.py
+       1 from campus_safety_hub.alerts import SensorMonitor
+       2 from campus_safety_hub.emergency import (
+       3     Alarm,
+       4     DoorController,
+       5     EmergencyMediator,
+       6     IEmergencyMediator,
+       7     VentilationController,
+       8 )
+       9 from campus_safety_hub.observers import (
+      10     AuditLogObserver,
+     … +68 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Mình đã chuyển khung sang Python và xoá khung C# lúc nãy. Chạy thử python
+  main.py thì toàn bộ import đều chạy được. Chương trình dừng ở TODO đầu tiên là
+  constructor của SmokeSensorAdapter, tức là đúng chỗ bạn cần bắt đầu.
+
+  Cấu trúc
+
+  File: sensors.py (campus_safety_hub/sensors.py)
+  Nội dung: ISensor, LegacySmokeDetector (đề cho sẵn), SmokeSensorAdapter
+  Việc bạn cần làm: Constructor, đổi 0..1000 sang %, đơn vị
+  ────────────────────────────────────────
+  File: alerts.py (campus_safety_hub/alerts.py)
+  Nội dung: AlertEvent (đã viết sẵn), IAlertObserver, SensorMonitor
+  Việc bạn cần làm: attach, detach, check_sensor (ngưỡng), _notify (duyệt bản
+  sao
+    + try/except)
+  ────────────────────────────────────────
+  File: observers.py (campus_safety_hub/observers.py)
+  Nội dung: DashboardObserver (mẫu của đề), Email, AuditLog, EmergencyBridge
+  Việc bạn cần làm: In ra màn hình, lưu log, chuyển CRITICAL thành FIRE_DETECTED
+  ────────────────────────────────────────
+  File: emergency.py (campus_safety_hub/emergency.py)
+  Nội dung: IEmergencyMediator, EmergencyMediator, Alarm, DoorController,
+    VentilationController
+  Việc bạn cần làm: Xử lý FIRE_DETECTED / ALARM_RESET, bật/tắt từng thiết bị
+  ────────────────────────────────────────
+  File: main.py
+  Nội dung: Test Adapter và kịch bản 1–5 đã viết sẵn
+  Việc bạn cần làm: Tự viết kịch bản 6–8
+
+  Khác biệt so với C#
+
+  - Interface được viết bằng ABC và @abstractmethod.
+  - AlertEvent bất biến nhờ @dataclass(frozen=True). Nếu gán lại thuộc tính sẽ
+    ném FrozenInstanceError, đáp ứng yêu cầu "observer không được thay đổi
+    AlertEvent".
+  - Tên method theo chuẩn PEP 8 (read_value, check_sensor). Nếu giảng viên đòi
+    UML khớp code, bạn sửa tên trong UML cho giống, hoặc ghi chú rằng UML dùng
+    tên theo đề.
+  - Thuộc tính private dùng tiền tố _. Riêng LegacySmokeDetector mình dùng
+    __smoke_level cho gần với private của đề.
+  - Duyệt observer trên bản sao bằng list(self._observers), tương ứng với
+    ToArray() trong C#.
+  - get_logs() trả về tuple để bên ngoài không sửa được log, tương ứng với
+    IReadOnlyList.
+
+  Thứ tự làm và cách chạy
+
+  Thứ tự làm vẫn như trước:
+  1. Adapter
+  2. SensorMonitor cùng Email và Audit
+  3. Ba thiết bị, rồi Mediator, rồi Bridge
+  4. Kịch bản 6–8
+
+  Nhớ là khi mediator xử lý ALARM_RESET thì không gọi lại alarm.reset(), nếu
+  không chương trình sẽ đệ quy vô hạn.
+
+  Để chạy, đứng ở thư mục w11 và gõ:
+  python main.py
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\w11\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check file adapter
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Adapter trong sensors.py:28-40 (campus_safety_hub/sensors.py#L28-L40) đúng cả
+  5 yêu cầu của đề. Mình đã chạy python main.py và test riêng thêm vài giá trị.
+
+  Yêu cầu: 1. Thực thi ISensor
+  Code của bạn: class SmokeSensorAdapter(ISensor)
+  Kết quả: isinstance(s, ISensor) trả về True ✅
+  ────────────────────────────────────────
+  Yêu cầu: 2. Nhận legacy qua constructor
+  Code của bạn: Gặp None thì ValueError, sai kiểu thì TypeError
+  Kết quả: ✅
+  ────────────────────────────────────────
+  Yêu cầu: 3. Đổi 0..1000 sang 0..100
+  Code của bạn: get_smoke_level() / 10.0 (chia số thực)
+  Kết quả: 735 → 73.5, 1200 (bị giới hạn xuống 1000) → 100.0, 0 → 0.0 ✅
+  ────────────────────────────────────────
+  Yêu cầu: 4. Đơn vị
+  Code của bạn: "% smoke"
+  Kết quả: ✅
+  ────────────────────────────────────────
+  Yêu cầu: 5. Không sao chép trạng thái
+  Code của bạn: Chỉ giữ _legacy, mỗi lần đọc đều hỏi lại
+  Kết quả: vars(s) chỉ có {'_legacy': ...}. Gọi set_smoke_level thì adapter đọc
+    ra giá trị mới ngay ✅
+
+  Lớp LegacySmokeDetector cũng giữ nguyên như đề, không bị sửa.
+
+  Chương trình chạy hết 8 kịch bản, không lỗi, và kết quả khớp mong đợi: có
+  WARNING/CRITICAL, mediator được kích hoạt, ALARM_RESET không bị đệ quy,
+  observer lỗi được bắt, observer tự gỡ được, và sửa AlertEvent thì ra
+  FrozenInstanceError.
+
+  Có một chi tiết nhỏ, không phải lỗi: kiểm tra isinstance khiến adapter chỉ
+  nhận đúng LegacySmokeDetector. Với bài này như vậy là hợp lý. Nếu muốn ngắn
+  gọn hơn, bạn có thể bỏ dòng kiểm tra None, vì isinstance(None, ...) cũng trả
+  về False và sẽ ném TypeError.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\w11\campus_safety_hub\sensors.py in the IDE. This
+  may or may not be related to the current task.</ide_opened_file>
+
+> check file alerts
+
+● alerts.py (campus_safety_hub/alerts.py) đúng yêu cầu của đề. Kết quả khi chạy
+  main.py lúc nãy cũng xác nhận điều này.
+
+  ┌────────────────┬──────────────────────────────┬─────────────────────────┐
+  │    Yêu cầu     │         Code của bạn         │         Kết quả         │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ AlertEvent bất │ @dataclass(frozen=True)      │ Kịch bản 8 ra           │
+  │  biến          │                              │ FrozenInstanceError ✅  │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Không cho đăng │ if observer not in           │ dashboard được attach 2 │
+  │  ký trùng      │ self._observers              │  lần nhưng chỉ in 1 lần │
+  │                │                              │  ✅                     │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Hủy đăng ký    │ detach có kiểm tra in trước  │ Kịch bản 4 không còn    │
+  │ được           │ khi remove, nên không lỗi    │ dòng EMAIL ✅           │
+  │                │ khi observer chưa đăng ký    │                         │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Monitor quyết  │ ≥70 → CRITICAL, ≥50 →        │ Ở mốc 45/55/60/73.5 đều │
+  │ định ngưỡng    │ WARNING, còn lại thì return  │  đúng ✅                │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Duyệt trên bản │ for observer in              │ Kịch bản 7 tự detach    │
+  │  sao           │ list(self._observers)        │ không làm lỗi vòng lặp  │
+  │                │                              │ ✅                      │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Observer lỗi   │                              │ Kịch bản 6: dashboard   │
+  │ không ảnh      │ try/except Exception và in   │ vẫn nhận được sau khi   │
+  │ hưởng observer │ [ERROR]                      │ FaultyObserver lỗi ✅   │
+  │  khác          │                              │                         │
+  ├────────────────┼──────────────────────────────┼─────────────────────────┤
+  │ Chỉ phụ thuộc  │ Chỉ import ISensor, chỉ biết │                         │
+  │ vào            │  IAlertObserver              │ ✅                      │
+  │ abstraction    │                              │                         │
+  └────────────────┴──────────────────────────────┴─────────────────────────┘
+
+  Góp ý nhỏ (không bắt buộc)
+
+  1. Ngưỡng đang là số cứng trong code. Bạn có thể tách thành hằng số của lớp để
+     dễ đọc và dễ sửa:
+  class SensorMonitor:
+      CRITICAL_THRESHOLD = 70.0
+      WARNING_THRESHOLD = 50.0
+  2. Tạo AlertEvent bằng đối số có tên giúp tránh nhầm thứ tự giữa unit và
+     severity, vì cả hai đều là str nên Python không báo lỗi nếu đảo chỗ:
+  AlertEvent(sensor_name=sensor_name, value=value, unit=sensor.get_unit(),
+             severity=severity, occurred_at=datetime.now())
+  3. (Tùy chọn) Trong attach, có thể kiểm tra thêm isinstance(observer,
+     IAlertObserver) và ném TypeError nếu sai, giống cách bạn làm ở Adapter. Nhờ
+     vậy nếu lỡ truyền nhầm đối tượng thì lỗi hiện ra ngay lúc đăng ký, thay vì
+     lúc gọi update.
+
+> còn lại những gì để hoàn thiện bài
+
+● Phần code đã chạy đủ, cả 8 kịch bản đều cho kết quả đúng. Những việc còn lại
+  chủ yếu là đồng bộ UML với code và chuẩn bị phần trả lời lý thuyết.
+
+  1. Đồng bộ UML với code Python (quan trọng)
+
+  UML hiện vẫn theo kiểu C#, còn code là Python. Nếu giảng viên đối chiếu, các
+  chỗ sau sẽ bị lệch:
+
+  ┌────────────────────────────────────┬────────────────────────────────────┐
+  │             Trong UML              │             Trong code             │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ ReadValue(), GetUnit(),            │ read_value(), get_unit(),          │
+  │ CheckSensor(), Attach()...         │ check_sensor(), attach()...        │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ + SensorName: string, Value:       │ sensor_name: str, value: float...  │
+  │ double...                          │                                    │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ - observers: List<IAlertObserver>  │ _observers: list[IAlertObserver]   │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ GetLogs(): List<string>            │ get_logs(): tuple[str, ...]        │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ void, bool, string                 │ None, bool, str                    │
+  ├────────────────────────────────────┼────────────────────────────────────┤
+  │ Thiếu constructor __init__ của     │ Code đã có                         │
+  │ Legacy, Email, Mediator            │                                    │
+  └────────────────────────────────────┴────────────────────────────────────┘
+
+  «record» có thể đổi thành «dataclass(frozen)». Ngoài ra, nên thêm 2 note về
+  ngưỡng và về việc chỉ chuyển tiếp khi CRITICAL, như mình đã gợi ý trước đây.
+
+  2. Phần A của đề: bảng trách nhiệm và 4 câu hỏi thiết kế
+
+  Đề yêu cầu bạn mô tả trách nhiệm từng lớp và trả lời 4 câu hỏi. Bạn nên viết
+  thành một file (ví dụ README.md hoặc trong báo cáo). Nội dung đã có ở câu trả
+  lời đầu tiên của mình:
+  1. Adapter chứa Legacy, không kế thừa.
+  2. SensorMonitor không biết EmailAlertObserver.
+  3. Alarm không tham chiếu DoorController.
+  4. SensorMonitor quyết định ngưỡng.
+
+  Bạn nên dẫn chứng bằng dòng code cụ thể. Ví dụ, câu 4 trỏ tới alerts.py:38-45
+  (campus_safety_hub/alerts.py#L38-L45).
+
+  3. Code: chỉnh nhỏ cho nhất quán (tùy chọn)
+
+  - Ở kịch bản 4 (cháy lần 2), Alarm in Already ON nhưng Door vẫn in UNLOCKED
+    lần nữa và Vent vẫn in STOPPED lần nữa. Bạn có thể thêm kiểm tra trạng thái
+    cho unlock, lock, start, stop giống cách đã làm ở activate(). Hiện tại thì
+    các biến _is_locked và _is_running được gán nhưng chưa dùng đến.
+  - Hai góp ý nhỏ cho alerts.py (campus_safety_hub/alerts.py) ở lượt trước: đưa
+    ngưỡng thành hằng số và tạo AlertEvent bằng đối số có tên.
+
+  4. Kiểm tra lại đề
+
+  PDF bạn gửi dừng ở phần D (Observer). Nếu đề còn trang sau (phần Mediator, yêu
+  cầu nộp bài, báo cáo hoặc ảnh chụp kết quả chạy), bạn gửi thêm để mình đối
+  chiếu xem còn thiếu gì.
+
+  Mình có thể viết luôn file README.md cho mục 2, hoặc sửa mục 3 trong code nếu
+  bạn muốn.
+
+> check observers
+● observers.py (campus_safety_hub/observers.py) đúng yêu cầu. Cả 4 observer đều
+  kế thừa IAlertObserver, chỉ đọc AlertEvent và không sửa nó, và đã chạy đúng
+  trong main.py.
+
+  ┌─────────────────────────┬────────────────────────────────────────────────┐
+  │        Observer         │                    Nhận xét                    │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ DashboardObserver       │ Giữ nguyên mẫu của đề ✅                       │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │                         │ Kiểm tra recipient rỗng hoặc chỉ có khoảng     │
+  │ EmailAlertObserver      │ trắng; chỉ in ra màn hình, không gửi email     │
+  │                         │ thật ✅                                        │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ AuditLogObserver        │ Lưu log vào list private; get_logs() trả về    │
+  │                         │ tuple nên bên ngoài không sửa được ✅          │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │                         │ Chỉ phụ thuộc vào IEmergencyMediator, không    │
+  │ EmergencyBridgeObserver │ phụ thuộc lớp cụ thể; chỉ chuyển tiếp khi      │
+  │                         │ CRITICAL; truyền self làm sender ✅            │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+  Đã kiểm chứng qua kết quả chạy:
+  - Ở mức WARNING (kịch bản 2), mediator không được gọi. Ở mức CRITICAL (kịch
+    bản 3), mediator được gọi.
+  - Sau khi detach email (kịch bản 4), không còn dòng [EMAIL].
+  - Nếu mediator ném lỗi, lỗi đó bị _notify của monitor bắt lại nên không làm
+    hỏng các observer khác.
+
+  Góp ý (không bắt buộc)
+
+  1. Chuỗi viết cứng bị lặp ở nhiều file. "CRITICAL" xuất hiện ở cả alerts.py:41
+     (campus_safety_hub/alerts.py#L41) và observers.py:55
+     (campus_safety_hub/observers.py#L55). "FIRE_DETECTED" xuất hiện ở cả
+     observers.py:56 (campus_safety_hub/observers.py#L56) và emergency.py:79
+     (campus_safety_hub/emergency.py#L79). Chỉ cần gõ sai một chữ là logic hỏng
+     mà không có báo lỗi. Bạn nên gom chúng thành hằng số dùng chung:
+  # alerts.py
+  CRITICAL = "CRITICAL"
+  WARNING = "WARNING"
+  # emergency.py
+  FIRE_DETECTED = "FIRE_DETECTED"
+  ALARM_RESET = "ALARM_RESET"
+  2. Kiểm tra recipient ở observers.py:18 (campus_safety_hub/observers.py#L18):
+     nếu truyền vào một giá trị không phải chuỗi, ví dụ 123, thì .strip() sẽ ném
+     AttributeError thay vì báo lỗi rõ ràng. Có thể sửa thành if not
+     isinstance(recipient, str) or not recipient.strip():.
+  3. (Tùy chọn) Mỗi lần có CRITICAL, EmergencyBridgeObserver đều gửi
+     FIRE_DETECTED, kể cả khi hệ thống đang trong trạng thái cháy. Hiện tại
+     Alarm đã tự xử lý trường hợp này bằng Already ON. Nếu bạn làm nốt việc kiểm
+     tra trạng thái cho Door và Vent (mục 3 ở lượt trước) thì vấn đề này cũng
+     được giải quyết.
+
+> giải thích emergency
+
+● emergency.py (campus_safety_hub/emergency.py) cài đặt Mediator pattern. Ba
+  thiết bị Alarm, Door và Vent cần phối hợp với nhau khi có cháy, nhưng không
+  thiết bị nào biết đến thiết bị nào. Mọi phối hợp đều đi qua một trung gian là
+  EmergencyMediator.
+
+  1. Vì sao cần Mediator?
+
+  Nếu không có Mediator, khi còi bật thì Alarm phải tự gọi door.unlock() và
+  vent.stop():
+  class Alarm:
+      def __init__(self, door, vent): ...   # Alarm phụ thuộc vào Door và Vent
+      def activate(self):
+          self.door.unlock(); self.vent.stop()
+  Thêm một thiết bị mới, ví dụ đèn thoát hiểm, thì phải sửa Alarm. Càng nhiều
+  thiết bị, các lớp càng dính chặt vào nhau. Mediator gom toàn bộ luật phối hợp
+  về một chỗ, nên các thiết bị chỉ còn lo phần việc của riêng mình.
+
+  2. Các thành phần
+
+  Lớp: IEmergencyMediator (dòng 8-10 (campus_safety_hub/emergency.py#L8-L10))
+  Vai trò trong pattern: Mediator interface
+  Trách nhiệm: Hợp đồng chung notify(sender, event_name).
+  EmergencyBridgeObserver
+    và Alarm chỉ biết đến interface này
+  ────────────────────────────────────────
+  Lớp: EmergencyMediator (dòng 63-89 (campus_safety_hub/emergency.py#L63-L89))
+  Vai trò trong pattern: Concrete Mediator
+  Trách nhiệm: Giữ tham chiếu tới cả 3 thiết bị và chứa luật phối hợp
+  ────────────────────────────────────────
+  Lớp: Alarm (dòng 13-34 (campus_safety_hub/emergency.py#L13-L34))
+  Vai trò trong pattern: Colleague
+  Trách nhiệm: Bật/tắt còi. Khi bị reset thì báo ngược cho mediator
+  ────────────────────────────────────────
+  Lớp: DoorController, VentilationController
+  Vai trò trong pattern: Colleague
+  Trách nhiệm: Chỉ nhận lệnh, không biết gì về bên ngoài
+
+  3. Khởi tạo: giải quyết tham chiếu vòng
+
+  Alarm cần mediator, còn mediator lại cần Alarm, nên không thể truyền cả hai
+  qua constructor. Cách giải quyết:
+  alarm = Alarm()                                      # tạo Alarm trước, lúc
+  này _mediator = None
+  mediator = EmergencyMediator(alarm, door, vent)      # mediator nhận 3 thiết
+  bị
+  #   bên trong __init__ có: self._alarm.set_mediator(self)   (dòng 75) -> nối
+  chiều ngược lại
+  Vì vậy _mediator trong Alarm có kiểu IEmergencyMediator | None, và reset()
+  phải kiểm tra if self._mediator is not None.
+
+  4. Hai luồng sự kiện
+
+  FIRE_DETECTED: phát hiện cháy
+  SensorMonitor ──AlertEvent(CRITICAL)──► EmergencyBridgeObserver
+                                              │ notify(self, "FIRE_DETECTED")
+                                              ▼
+                                       EmergencyMediator
+                            ┌─────────────────┼─────────────────┐
+                      alarm.activate()   door.unlock()     vent.stop()
+                       (bật còi)       (mở cửa thoát hiểm) (tắt quạt cho khói
+  không lan)
+
+  ALARM_RESET: tắt báo động
+  alarm.reset() ─► tắt còi ─► mediator.notify(alarm, "ALARM_RESET")
+                                    │
+                           door.lock() + vent.start()   (trở lại bình thường)
+  Lưu ý ở dòng 84-87 (campus_safety_hub/emergency.py#L84-L87): nhánh ALARM_RESET
+  không gọi self._alarm.reset(). Còi đã tự tắt trước khi báo cho mediator. Nếu
+  mediator gọi lại reset() thì reset() lại gửi ALARM_RESET, và chương trình đệ
+  quy vô hạn.
+
+  5. Liên hệ với câu hỏi 3 của đề
+
+  ▎ "Alarm có cần tham chiếu đến DoorController không?"
+
+  Không. Trong code, Alarm chỉ có _mediator và _is_on, không có tham chiếu nào
+  tới Door hay Vent. Ngoài ra:
+  - Muốn đổi luật, ví dụ khi cháy thì bật thêm đèn, chỉ cần sửa
+    EmergencyMediator.notify.
+  - Muốn thêm thiết bị mới, chỉ cần thêm vào mediator, không phải động đến các
+    thiết bị cũ.
+
+  6. Điểm còn có thể cải thiện
+
+  Alarm.activate() có kiểm tra _is_on nên in Already ON khi bị gọi lần hai. Còn
+  Door và Vent thì có biến _is_locked/_is_running nhưng chưa dùng, nên ở kịch
+  bản 4 chúng in lại UNLOCKED và STOPPED. Bạn có thể thêm kiểm tra trạng thái
+  tương tự để cả ba thiết bị nhất quán.
+
+> check emergency
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● emergency.py (campus_safety_hub/emergency.py) đúng về mặt Mediator pattern.
+  Mình đã chạy thêm vài trường hợp biên, phần lớn đều ổn, chỉ còn một lỗi logic
+  nhỏ.
+
+  Những chỗ đã đúng
+
+  ┌─────────────────────────────────┬───────────────────────────────────────┐
+  │            Kiểm tra             │                Kết quả                │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ IEmergencyMediator là lớp trừu  │ Tạo trực tiếp thì ra TypeError ✅     │
+  │ tượng                           │                                       │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ Constructor của mediator nhận   │ Ra ValueError ✅                      │
+  │ None                            │                                       │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ set_mediator(self) nối chiều    │ Alarm.reset() gửi được ALARM_RESET ✅ │
+  │ ngược lại                       │                                       │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ Nhánh ALARM_RESET không gọi lại │ Không đệ quy ✅                       │
+  │  alarm.reset()                  │                                       │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ Gọi reset() khi chưa có         │ Chỉ in OFF, không bị crash ✅         │
+  │ mediator                        │                                       │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ Sự kiện lạ "XYZ"                │ In Unknown event: XYZ ✅              │
+  ├─────────────────────────────────┼───────────────────────────────────────┤
+  │ Các thiết bị không biết nhau    │ Alarm chỉ giữ _mediator; Door và Vent │
+  │                                 │  không giữ gì bên ngoài ✅            │
+  └─────────────────────────────────┴───────────────────────────────────────┘
+
+  Lỗi logic: reset() khi còi đang tắt vẫn phát ALARM_RESET
+
+  Khi gọi alarm.reset() hai lần liên tiếp:
+  [ALARM] OFF
+  [MEDIATOR] ALARM_RESET from Alarm
+  [DOOR] Emergency exit LOCKED
+  [VENT] Ventilation STARTED
+  [ALARM] OFF                       <- còi vốn đã tắt
+  [MEDIATOR] ALARM_RESET from Alarm <- vẫn gửi sự kiện, khóa cửa lần nữa
+  ...
+  Tình huống nguy hiểm hơn: còi chưa từng bật, có người lỡ bấm reset, vậy mà hệ
+  thống vẫn khóa cửa và bật quạt. Cách sửa là thêm điều kiện chặn giống
+  activate():
+  def reset(self) -> None:
+      if not self._is_on:
+          print("[ALARM] Already OFF")
+          return
+      self._is_on = False
+      print("[ALARM] OFF")
+      if self._mediator is not None:
+          self._mediator.notify(self, "ALARM_RESET")
+
+  Nên làm: Door và Vent chưa dùng biến trạng thái
+
+  _is_locked và _is_running được gán nhưng chưa bao giờ được đọc, nên khi cháy
+  lần thứ hai thì lại in UNLOCKED và STOPPED. Muốn nhất quán với Alarm, bạn sửa
+  như sau:
+  def unlock(self) -> None:
+      if not self._is_locked:
+          print("[DOOR] Already UNLOCKED")
+          return
+      self._is_locked = False
+      print("[DOOR] Emergency exit UNLOCKED")
+  lock, start và stop sửa theo cùng mẫu.
+
+  Góp ý nhỏ
+
+  - Như lần trước đã nói, "FIRE_DETECTED" và "ALARM_RESET" đang viết cứng ở cả
+    observers.py và emergency.py. Nên đưa thành hằng số trong emergency.py rồi
+    import sang chỗ dùng.
+  - Tham số sender hiện chỉ dùng để in tên. Như vậy là đủ cho bài này. Nếu muốn
+    chặt hơn, có thể chỉ chấp nhận ALARM_RESET khi sender is self._alarm.
+
+> thế còn về phần test thì sao
+
+● Hiện tại main.py chỉ là demo: chạy xong bạn phải tự đọc output và tự đánh giá
+  đúng sai. Phần này có ích để trình bày, nhưng chưa phải kiểm thử tự động. Mình
+  sẽ viết bộ unit test bằng unittest (có sẵn trong Python, không cần cài gì) để
+  kiểm tra từng yêu cầu của đề.
+
+● Write(tests\__init__.py)
+  ⎿  User rejected write to tests\__init__.py
+      1 (No content)
+  ⎿  Interrupted · What should Claude do instead?
+
+> ý tôi là đề có yêu cầu test tối thiểu gì k
+
+● Phần PDF bạn gửi (5 trang, đến hết phần D) chỉ có một đoạn test bắt buộc, nằm
+  ở mục C.4 (Adapter):
+
+  legacy = LegacySmokeDetector(735)
+  sensor = SmokeSensorAdapter(legacy)
+  print(sensor.read_value())  # 73.5
+  print(sensor.get_unit())    # % smoke
+  Bạn đã có đoạn này ở đầu main.py (main.py#L45-L48), và nó in đúng 73.5 và %
+  smoke ✅
+
+  Phần D (Observer) không có mục test riêng. Đề chỉ liệt kê 5 yêu cầu mà code
+  phải đáp ứng. Bạn đã có kịch bản minh họa cho cả 5:
+
+  ┌───────────────────────────────────────┬─────────────────────────────────┐
+  │              Yêu cầu D.4              │     Kịch bản trong main.py      │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 1. Không đăng ký trùng                │ attach(dashboard) 2 lần ✅      │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 2. Hủy đăng ký được                   │ Kịch bản 4 (detach email) ✅    │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 3. Duyệt trên bản sao                 │ Kịch bản 7 (observer tự detach) │
+  │                                       │  ✅                             │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 4. Không sửa được AlertEvent          │ Kịch bản 8                      │
+  │                                       │ (FrozenInstanceError) ✅        │
+  ├───────────────────────────────────────┼─────────────────────────────────┤
+  │ 5. Observer lỗi không ảnh hưởng       │ Kịch bản 6 (FaultyObserver) ✅  │
+  │ observer khác                         │                                 │
+  └───────────────────────────────────────┴─────────────────────────────────┘
+
+  Ngưỡng ở mục B.3 cũng đã được minh họa: 45% không cảnh báo, 55–62% là WARNING,
+  73.5% là CRITICAL.
+
+  Như vậy, với 5 trang đề bạn gửi, main.py hiện tại đã đủ yêu cầu test, không
+  cần viết thêm unit test. Phần Mediator trong PDF chưa có đề chi tiết. Nếu file
+  đề còn trang sau (phần E trở đi), bạn gửi thêm để mình kiểm tra xem có yêu
+  cầu test nào khác không.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\w11\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> lí do gì phải xây dựng 3 class Observer kia trong main
+
+● Ba lớp này là observer giả (test double). Chúng không phải tính năng của hệ
+  thống, mà chỉ dùng để chứng minh 3 yêu cầu của phần D.4. Ba observer thật
+  (Dashboard, Email, Audit) không làm được việc đó, vì chúng chạy bình thường:
+  không ném lỗi, không tự gỡ mình và không cho lấy AlertEvent ra ngoài.
+
+  Lớp: FaultyObserver
+  Yêu cầu cần chứng minh: D.4.5: observer lỗi không ảnh hưởng observer khác
+  Vì sao observer thật không làm được: Muốn thấy try/except trong _notify hoạt
+    động thì phải có một observer cố tình ném lỗi. Observer thật không bao giờ
+    lỗi, nên nếu không có lớp này thì đoạn except không bao giờ chạy tới
+  ────────────────────────────────────────
+  Lớp: OneShotObserver
+  Yêu cầu cần chứng minh: D.4.3: duyệt trên bản sao để observer bị gỡ giữa chừng
+
+    không làm hỏng vòng lặp
+  Vì sao observer thật không làm được: Cần một observer gọi detach(self) ngay
+    trong update. Nếu _notify duyệt trực tiếp trên self._observers thay vì
+    list(...), observer đứng ngay sau nó sẽ bị bỏ qua. Lớp này cho thấy điều đó
+    không xảy ra
+  ────────────────────────────────────────
+  Lớp: EventCaptureObserver
+  Yêu cầu cần chứng minh: D.4.4: observer không được sửa AlertEvent
+  Vì sao observer thật không làm được: AlertEvent được tạo bên trong
+    check_sensor, nên bên ngoài không có cách nào lấy được đối tượng đó. Lớp này
+
+    "bắt" lấy event qua update để main thử gán severity = "X" và thấy
+    FrozenInstanceError
+
+  Tại sao đặt trong main.py mà không đặt trong package campus_safety_hub?
+  Vì đây là mã dùng để kiểm thử, không phải một phần của hệ thống. Nếu đặt trong
+  observers.py, người đọc sẽ tưởng hệ thống thật có một observer chuyên ném
+  lỗi. Để ở main.py (hoặc trong file test riêng) giúp package chỉ chứa đúng các
+  lớp có trong UML.
+
+  Ba lớp này cũng không cần đưa vào UML, vì chúng không thuộc thiết kế của hệ
+  thống.
+
+> \export
+
+● \export chưa phải lệnh hợp lệ, vì bạn gõ dấu gạch chéo ngược \. Lệnh xuất hội
+  thoại của Claude Code dùng dấu gạch chéo xuôi:
+
+  /export
+
+  Đây là lệnh có sẵn của Claude Code nên mình không chạy thay bạn được, bạn cần
+  tự gõ vào ô chat. Lệnh này cho phép lưu toàn bộ cuộc hội thoại ra file hoặc
+  copy vào clipboard.
+
+  Nếu ý bạn là xuất thứ khác, ví dụ code thành file .zip để nộp, README hoặc báo
+  cáo trả lời phần A, hay ảnh UML, thì bạn nói rõ để mình làm.
